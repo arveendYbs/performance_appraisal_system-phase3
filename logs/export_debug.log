@@ -1,0 +1,238 @@
+2026-01-05 10:03:00 - === DEBUG EXPORT STARTED ===
+---
+2026-01-05 10:03:00 - Session user_id
+1
+---
+2026-01-05 10:03:00 - Database connected
+---
+2026-01-05 10:03:00 - User loaded
+Array
+(
+    [id] => 1
+    [name] => System Administrator
+    [is_hr] => 1
+)
+
+---
+2026-01-05 10:03:00 - Parameters
+Array
+(
+    [company_id] => 1
+    [year] => 2025
+    [export_type] => summary
+)
+
+---
+2026-01-05 10:03:00 - HR Companies
+Array
+(
+    [0] => Array
+        (
+            [id] => 6
+            [name] => ORIENTAL FASTECH MANUFACTURING (Battery)
+            [code] => OFM BATT
+        )
+
+    [1] => Array
+        (
+            [id] => 2
+            [name] => Oriental Fastech Manufacturing (METAL)
+            [code] => OFM METAL
+        )
+
+    [2] => Array
+        (
+            [id] => 5
+            [name] => Oriental Fastech Manufacturing (PCBA)
+            [code] => OFM PCBA
+        )
+
+    [3] => Array
+        (
+            [id] => 7
+            [name] => ORIENTAL FASTECH MANUFACTURING VIETNAM
+            [code] => OFM VM
+        )
+
+    [4] => Array
+        (
+            [id] => 4
+            [name] => ORIFAST Solutions
+            [code] => ORIFAST
+        )
+
+    [5] => Array
+        (
+            [id] => 1
+            [name] => YBS International Berhad
+            [code] => YBS
+        )
+
+)
+
+---
+2026-01-05 10:03:00 - Access check
+Array
+(
+    [has_access] => 1
+    [company_name] => YBS International Berhad
+)
+
+---
+2026-01-05 10:03:00 - TEST 1: Fetching appraisals
+---
+2026-01-05 10:03:00 - Query prepared
+Array
+(
+    [query] => SELECT 
+                a.id as appraisal_id,
+                a.form_id,
+                a.appraisal_period_from,
+                a.appraisal_period_to,
+                a.grade,
+                a.total_score,
+                a.employee_submitted_at,
+                a.manager_reviewed_at,
+                u.name as employee_name,
+                u.emp_number,
+                u.position,
+                u.department,
+                u.site,
+                u.date_joined,
+                m.name as manager_name,
+                f.title as form_title
+              FROM appraisals a
+              JOIN users u ON a.user_id = u.id
+              LEFT JOIN users m ON u.direct_superior = m.id
+              LEFT JOIN forms f ON a.form_id = f.id
+              WHERE u.company_id = ? 
+              AND a.status = 'completed' 
+              AND YEAR(a.appraisal_period_from) = ? 
+              ORDER BY u.department, u.name
+)
+
+---
+2026-01-05 10:03:00 - Statement prepared
+---
+2026-01-05 10:03:00 - Executing with params
+Array
+(
+    [company_id] => 1
+    [year] => 2025
+)
+
+---
+2026-01-05 10:03:00 - Appraisals fetched
+Array
+(
+    [count] => 4
+)
+
+---
+2026-01-05 10:03:00 - Sample appraisal
+Array
+(
+    [appraisal_id] => 61
+    [form_id] => 2
+    [appraisal_period_from] => 2025-09-17
+    [appraisal_period_to] => 2025-12-31
+    [grade] => B
+    [total_score] => 70.00
+    [employee_submitted_at] => 2025-11-28 12:10:46
+    [manager_reviewed_at] => 2025-11-28 13:34:57
+    [employee_name] => NUR EMYLIA NATASHA BINTI MOHD HALIL
+    [emp_number] => 1632
+    [position] => S02 - ASSISTANT
+    [department] => ACCOUNTING & FINANCE
+    [site] => PSP
+    [date_joined] => 2025-09-17
+    [manager_name] => TAN SOK MUN
+    [form_title] => Performance Appraisal Form (For General Staff)
+)
+
+---
+2026-01-05 10:03:00 - TEST 2: Testing responses query
+---
+2026-01-05 10:03:00 - Testing form_id
+2
+---
+2026-01-05 10:03:00 - Responses query
+Array
+(
+    [query] => SELECT r.*, fq.question_text, fq.response_type, fs.section_title
+                       FROM responses r
+                       JOIN form_questions fq ON r.question_id = fq.id
+                       JOIN form_sections fs ON fq.section_id = fs.id
+                       WHERE r.appraisal_id = ?
+                       ORDER BY fs.section_order, fq.question_order
+)
+
+---
+2026-01-05 10:03:00 - Responses statement prepared
+---
+2026-01-05 10:03:00 - Executing responses with appraisal_id
+61
+---
+2026-01-05 10:03:00 - Responses fetched
+Array
+(
+    [count] => 24
+)
+
+---
+2026-01-05 10:03:00 - Sample response
+Array
+(
+    [id] => 5285
+    [appraisal_id] => 61
+    [question_id] => 99
+    [employee_response] => I think HHHCIS have a positive value. This focus on honesty, and harmony helps me learn and feel comfortable as a new staff.
+    [employee_rating] => 
+    [employee_comments] => 
+    [employee_attachment] => 
+    [manager_response] => 
+    [manager_rating] => 
+    [manager_comments] => Overall conclusion : Keeping a positive mindset and
+    [manager_attachment] => 
+    [created_at] => 2025-10-29 11:27:12
+    [updated_at] => 2025-11-28 13:23:56
+    [question_text] => Overall Comment on Cultural Values
+    [response_type] => textarea
+    [section_title] => Cultural Values
+)
+
+---
+2026-01-05 10:03:00 - TEST 3: Testing average ratings query
+---
+2026-01-05 10:03:00 - Ratings query
+Array
+(
+    [query] => SELECT 
+                AVG(CASE WHEN employee_rating IS NOT NULL THEN employee_rating END) as employee_avg,
+                AVG(CASE WHEN manager_rating IS NOT NULL THEN manager_rating END) as manager_avg,
+                COUNT(*) as total_questions
+              FROM responses
+              WHERE appraisal_id = ?
+              AND question_id IN (
+                  SELECT id FROM form_questions 
+                  WHERE response_type IN ('rating_5', 'rating_10')
+              )
+)
+
+---
+2026-01-05 10:03:00 - Ratings statement prepared
+---
+2026-01-05 10:03:00 - Executing ratings with appraisal_id
+61
+---
+2026-01-05 10:03:00 - Ratings fetched
+Array
+(
+    [employee_avg] => 6.2000
+    [manager_avg] => 6.4000
+    [total_questions] => 10
+)
+
+---
+2026-01-05 10:03:00 - === ALL TESTS PASSED ===
+---

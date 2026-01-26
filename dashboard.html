@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Overview Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-app: #121212;
+            --bg-panel: #1e1e1e;
+            --text-primary: #ffffff;
+            --text-secondary: #b3b3b3;
+            --accent-color: #6366f1; /* Indigo */
+            --accent-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-app);
+            color: var(--text-primary);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header Vibe */
+        header {
+            margin-bottom: 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 1rem;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background-color: var(--bg-panel);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border-color: var(--accent-color);
+        }
+
+        .stat-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 0.5rem 0;
+        }
+
+        .stat-trend {
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .trend-up { color: var(--success-color); }
+        .trend-down { color: var(--warning-color); }
+
+        /* Charts Grid */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .chart-panel {
+            background-color: var(--bg-panel);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .chart-panel h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    <header>
+        <h1>Executive Overview</h1>
+        <div class="subtitle">Real-time platform performance metrics.</div>
+    </header>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-title">Total Revenue</div>
+            <div class="stat-value">$128,450</div>
+            <div class="stat-trend trend-up">
+                <span>▲</span> +12.5% from last month
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Active Users</div>
+            <div class="stat-value">8,542</div>
+            <div class="stat-trend trend-up">
+                <span>▲</span> +5.3% new growth
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Avg. Session (min)</div>
+            <div class="stat-value">4m 32s</div>
+            <div class="stat-trend trend-down">
+                <span>▼</span> -1.2% bounce rate inc.
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Conversion Rate</div>
+            <div class="stat-value">3.2%</div>
+            <div class="stat-trend trend-up">
+                <span>▲</span> +0.8% optimization win
+            </div>
+        </div>
+    </div>
+
+    <div class="charts-grid">
+        <div class="chart-panel">
+            <h2>Revenue Trend (Last 6 Months)</h2>
+            <canvas id="lineChart"></canvas>
+        </div>
+        <div class="chart-panel">
+            <h2>User Distribution by Region</h2>
+            <canvas id="doughnutChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Configuration for a professional, dark-theme chart look
+    Chart.defaults.color = '#b3b3b3';
+    Chart.defaults.font.family = "'Inter', sans-serif";
+
+    // --- Line Chart for Revenue Trend ---
+    const lineCtx = document.getElementById('lineChart').getContext('2d');
+    // Create a gradient fill for the area under the line
+    const gradientFill = lineCtx.createLinearGradient(0, 0, 0, 400);
+    gradientFill.addColorStop(0, 'rgba(99, 102, 241, 0.3)'); // Indigo with opacity
+    gradientFill.addColorStop(1, 'rgba(99, 102, 241, 0)');   // Fade to transparent
+
+    new Chart(lineCtx, {
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+            datasets: [{
+                label: 'Monthly Revenue',
+                data: [65000, 59000, 80000, 81000, 95000, 128450],
+                borderColor: '#6366f1', // Indigo accent color
+                backgroundColor: gradientFill,
+                tension: 0.4, // Smooth curves
+                fill: true,
+                pointBackgroundColor: '#6366f1',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false }, // Clean look, hide legend for single series
+                tooltip: {
+                    backgroundColor: '#1e1e1e',
+                    titleColor: '#fff',
+                    bodyColor: '#b3b3b3',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    padding: 10,
+                    displayColors: false,
+                    callbacks: {
+                        label: function(context) {
+                            let value = context.raw;
+                            return '$' + value.toLocaleString();
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        callback: function(value) { return '$' + value / 1000 + 'k'; }
+                    }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            }
+        }
+    });
+
+    // --- Doughnut Chart for User Distribution ---
+    const doughnutCtx = document.getElementById('doughnutChart').getContext('2d');
+    new Chart(doughnutCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['North America', 'Europe', 'Asia Pacific', 'South America'],
+            datasets: [{
+                data: [45, 30, 15, 10],
+                backgroundColor: [
+                    '#6366f1', // Indigo
+                    '#10b981', // Emerald
+                    '#f59e0b', // Amber
+                    '#ef4444'  // Red
+                ],
+                borderColor: '#1e1e1e', // Match panel background for clean separation
+                borderWidth: 3,
+                hoverOffset: 10
+            }]
+        },
+        options: {
+            responsive: true,
+            cutout: '70%', // Thinner donut for a modern look
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { padding: 20, usePointStyle: true }
+                },
+                tooltip: {
+                    backgroundColor: '#1e1e1e',
+                    bodyColor: '#fff',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderWidth: 1,
+                    callbacks: {
+                        label: function(context) {
+                            let value = context.raw;
+                            return value + '% Share';
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
+
+</body>
+</html>
