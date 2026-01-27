@@ -404,4 +404,301 @@ public function canHRView($appraisal_id, $hr_user_id) {
 
     return $result['count'] > 0;
 }
+
+
+
+/**
+ * Initialize approval chain when appraisal is submitted
+ * Call this in employee/appraisal/submit.php
+ */
+public function initializeApprovalChain() {
+    try {
+        require_once __DIR__ . '/ApprovalChain.php';
+        
+        $approvalChain = new ApprovalChain($this->conn);
+        $chain = $approvalChain->buildApprovalChain($this->id, $this->user_id);
+        
+        if ($chain) {
+            // Update appraisal status to submitted
+            $query = "UPDATE appraisals 
+                      SET status = 'submitted',
+                          employee_submitted_at = NOW()
+                      WHERE id = ?";
+            
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute([$this->id]);
+            
+            // Send notification to Level 1 approver
+            $this->notifyApprover(1);
+            
+            return true;
+        }
+        
+        return false;
+        
+    } catch (Exception $e) {
+        error_log("Appraisal initializeApprovalChain error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Get approval chain for this appraisal
+ */
+public function getApprovalChain() {
+    $query = "SELECT aa.*, 
+                     u.name as approver_name, 
+                     u.emp_number as approver_emp_number,
+                     u.email as approver_email,
+                     u.emp_email as approver_emp_email
+              FROM appraisal_approvals aa
+              JOIN users u ON aa.approver_id = u.id
+              WHERE aa.appraisal_id = ?
+              ORDER BY aa.approval_level ASC";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->execute([$this->id]);
+    
+    return $stmt;
+}
+
+/**
+ * Get current approval level details
+ */
+public function getCurrentApprovalLevel() {
+    $query = "SELECT a.current_approval_level, a.total_approval_levels,
+                     aa.*, 
+                     u.name as approver_name,
+                     u.emp_number as approver_emp_number
+              FROM appraisals a
+              LEFT JOIN appraisal_approvals aa ON a.id = aa.appraisal_id 
+                  AND a.current_approval_level = aa.approval_level
+              LEFT JOIN users u ON aa.approver_id = u.id
+              WHERE a.id = ?";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->execute([$this->id]);
+    
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Check if user can approve this appraisal at current level
+ */
+public function canUserApprove($user_id) {
+    $current = $this->getCurrentApprovalLevel();
+    
+    if (!$current || !isset($current['approver_id'])) {
+        return false;
+    }
+    
+    return ($current['approver_id'] == $user_id && $current['status'] == 'pending');
+}
+
+/**
+ * Check if user can rate (only Level 1)
+ */
+public function canUserRate($user_id) {
+    $current = $this->getCurrentApprovalLevel();
+    
+    if (!$current) {
+        return false;
+    }
+    
+    return ($current['approver_id'] == $user_id && 
+            $current['can_rate'] == 1 && 
+            $current['status'] == 'pending');
+}
+
+/**
+ * Process approval action
+ */
+public function processApproval($user_id, $action, $comments = null) {
+    require_once __DIR__ . '/ApprovalChain.php';
+    
+    $approvalChain = new ApprovalChain($this->conn);
+    $result = $approvalChain->processApproval($this->id, $user_id, $action, $comments);
+    
+    if ($result['success']) {
+        // Send notification to next approver or employee (if completed/rejected)
+        $this->sendApprovalNotification($action);
+    }
+    
+    return $result;
+}
+
+/**
+ * Get approval history/logs
+ */
+public function getApprovalLogs() {
+    $query = "SELECT al.*, 
+                     u.name as actor_name,
+                     u.emp_number as actor_emp_number
+              FROM appraisal_approval_logs al
+              LEFT JOIN users u ON al.actor_id = u.id
+              WHERE al.appraisal_id = ?
+              ORDER BY al.created_at DESC";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->execute([$this->id]);
+    
+    return $stmt;
+}
+
+/**
+ * Send notification to approver at specific level
+ */
+private function notifyApprover($level) {
+    // Get approver at this level
+    $query = "SELECT aa.approver_id, aa.approver_role,
+                     u.name, u.email, u.emp_email,
+                     emp.name as employee_name, emp.emp_number
+              FROM appraisal_approvals aa
+              JOIN users u ON aa.approver_id = u.id
+              JOIN appraisals a ON aa.appraisal_id = a.id
+              JOIN users emp ON a.user_id = emp.id
+              WHERE aa.appraisal_id = ? AND aa.approval_level = ?";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->execute([$this->id, $level]);
+    $approver = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$approver) {
+        return false;
+    }
+    
+    // Send email notification
+    $to_email = !empty($approver['emp_email']) ? $approver['emp_email'] : $approver['email'];
+    $subject = "Appraisal Approval Required - {$approver['employee_name']}";
+    
+    $level_text = $level == 1 ? "review and rate" : "approve";
+    
+    $message = "Dear {$approver['name']},\n\n";
+    $message .= "You have a pending appraisal to {$level_text}.\n\n";
+    $message .= "Employee: {$approver['employee_name']} ({$approver['emp_number']})\n";
+    $message .= "Your Role: " . ucwords(str_replace('_', ' ', $approver['approver_role'])) . "\n";
+    $message .= "Approval Level: {$level}\n\n";
+    $message .= "Please login to the system to complete your review.\n";
+    $message .= BASE_URL . "/manager/approvals/pending.php\n\n";
+    $message .= "Thank you.";
+    
+    $headers = "From: " . SMTP_FROM . "\r\n";
+    $headers .= "Reply-To: " . SMTP_FROM. "\r\n";
+    
+    return mail($to_email, $subject, $message, $headers);
+}
+
+/**
+ * Send notification after approval action
+ */
+private function sendApprovalNotification($action) {
+    $current_level = $this->getCurrentApprovalLevel();
+    
+    if ($action === 'approve' && !$current_level['is_final_approver']) {
+        // Notify next level approver
+        $this->notifyApprover($current_level['approval_level'] + 1);
+    } elseif ($action === 'approve' && $current_level['is_final_approver']) {
+        // Notify employee - appraisal completed
+        $this->notifyEmployeeCompletion();
+    } elseif ($action === 'reject') {
+        // Notify employee - appraisal rejected
+        $this->notifyEmployeeRejection($current_level['comments']);
+    }
+}
+
+/**
+ * Notify employee of completion
+ */
+private function notifyEmployeeCompletion() {
+    $query = "SELECT u.name, u.email, u.emp_email, u.emp_number
+              FROM appraisals a
+              JOIN users u ON a.user_id = u.id
+              WHERE a.id = ?";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->execute([$this->id]);
+    $employee = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$employee) {
+        return false;
+    }
+    
+    $to_email = !empty($employee['emp_email']) ? $employee['emp_email'] : $employee['email'];
+    $subject = "Appraisal Completed - All Approvals Received";
+    
+    $message = "Dear {$employee['name']},\n\n";
+    $message .= "Your appraisal has been completed and approved by all required levels.\n\n";
+    $message .= "You can now view your final appraisal results.\n";
+    $message .= BASE_URL . "/employee/appraisal/view.php?id={$this->id}\n\n";
+    $message .= "Thank you.";
+    
+    $headers = "From: " . SMTP_FROM . "\r\n";
+    
+    return mail($to_email, $subject, $message, $headers);
+}
+
+/**
+ * Notify employee of rejection
+ */
+private function notifyEmployeeRejection($reason) {
+    $query = "SELECT u.name, u.email, u.emp_email, u.emp_number
+              FROM appraisals a
+              JOIN users u ON a.user_id = u.id
+              WHERE a.id = ?";
+    
+    $stmt = $this->conn->prepare($query);
+    $stmt->execute([$this->id]);
+    $employee = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if (!$employee) {
+        return false;
+    }
+    
+    $to_email = !empty($employee['emp_email']) ? $employee['emp_email'] : $employee['email'];
+    $subject = "Appraisal Rejected - Action Required";
+    
+    $message = "Dear {$employee['name']},\n\n";
+    $message .= "Your appraisal has been rejected and requires revision.\n\n";
+    if ($reason) {
+        $message .= "Reason: {$reason}\n\n";
+    }
+    $message .= "Please review the feedback and resubmit.\n";
+    $message .= BASE_URL . "/employee/appraisal/edit.php?id={$this->id}\n\n";
+    $message .= "Thank you.";
+    
+    $headers = "From: " . SMTP_FROM . "\r\n";
+    
+    return mail($to_email, $subject, $message, $headers);
+}
+
+/**
+ * Get appraisals pending approval by user
+ */
+public static function getPendingApprovalsForUser($db, $user_id) {
+    $query = "SELECT a.*, 
+                     u.name as employee_name,
+                     u.emp_number,
+                     u.position,
+                     u.department,
+                     c.name as company_name,
+                     f.title as form_title,
+                     aa.approval_level,
+                     aa.approver_role,
+                     aa.can_rate
+              FROM appraisals a
+              JOIN users u ON a.user_id = u.id
+              JOIN companies c ON u.company_id = c.id
+              LEFT JOIN forms f ON a.form_id = f.id
+              JOIN appraisal_approvals aa ON a.id = aa.appraisal_id 
+                  AND a.current_approval_level = aa.approval_level
+              WHERE aa.approver_id = ?
+              AND aa.status = 'pending'
+              AND a.status IN ('submitted', 'pending_approval')
+              ORDER BY a.employee_submitted_at DESC";
+    
+    $stmt = $db->prepare($query);
+    $stmt->execute([$user_id]);
+    
+    return $stmt;
+}
 }
