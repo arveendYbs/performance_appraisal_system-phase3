@@ -17,7 +17,7 @@ define('APP_NAME', $_ENV['APP_NAME'] ?? 'Performance Appraisal System');
 define('APP_VERSION', $_ENV['APP_VERSION'] ?? '1.0.0');
 define('APP_ENV', $_ENV['APP_ENV'] ?? 'production');
 define('APP_DEBUG', filter_var($_ENV['APP_DEBUG'] ?? false, FILTER_VALIDATE_BOOLEAN));
-define('BASE_URL', $_ENV['BASE_URL'] ?? 'http://localhost/performance_appraisal_system');
+define('BASE_URL', $_ENV['BASE_URL'] ?? 'http://localhost/performance_appraisal_system-phase3');
 
 // Database Configuration
 define('DB_HOST', $_ENV['DB_HOST'] ?? 'localhost');
