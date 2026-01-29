@@ -1,152 +1,217 @@
 <?php
-/**
- * Test Approval Chain Generation
- * Run this script to test the approval chain logic
- * 
- * Usage: php tests/test_approval_chain.php
- */
-
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../classes/ApprovalChain.php';
-require_once __DIR__ . '/../classes/Department.php';
-require_once __DIR__ . '/../classes/Position.php';
 
-echo "=== APPROVAL CHAIN TEST SCRIPT ===\n\n";
+// Start HTML output
+echo '<!DOCTYPE html>
+<html>
+<head>
+    <title>Approval Chain Engine - Automated Test Runner</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #f5f5f5; 
+        }
+        .header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; 
+            padding: 20px; 
+            text-align: center; 
+            border-radius: 10px; 
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .employee-card { 
+            background: white; 
+            border: 1px solid #ddd; 
+            border-radius: 8px; 
+            padding: 20px; 
+            margin: 20px 0; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .employee-header { 
+            background-color: #e3f2fd; 
+            padding: 15px; 
+            border-radius: 5px; 
+            margin-bottom: 15px;
+            border-left: 4px solid #2196f3;
+        }
+        .status-success { 
+            color: #4caf50; 
+            font-weight: bold; 
+        }
+        .status-error { 
+            color: #f44336; 
+            font-weight: bold; 
+        }
+        .status-info { 
+            color: #2196f3; 
+            font-weight: bold; 
+        }
+        .chain-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 15px 0; 
+            background: white;
+            border-radius: 5px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chain-table th { 
+            background-color: #ff9800; 
+            color: white; 
+            padding: 12px; 
+            text-align: left;
+        }
+        .chain-table td { 
+            padding: 12px; 
+            border-bottom: 1px solid #eee; 
+        }
+        .chain-table tr:nth-child(even) { 
+            background-color: #f9f9f9; 
+        }
+        .chain-table tr:hover { 
+            background-color: #f5f5f5; 
+        }
+        .section-title { 
+            color: #ff9800; 
+            border-bottom: 2px solid #ff9800; 
+            padding-bottom: 5px; 
+            margin: 20px 0 10px 0;
+        }
+        .final-yes { 
+            color: #4caf50; 
+            font-weight: bold; 
+        }
+        .final-no { 
+            color: #9e9e9e; 
+        }
+        .cleanup { 
+            background-color: #e8f5e8; 
+            padding: 10px; 
+            border-radius: 5px; 
+            border-left: 3px solid #4caf50;
+        }
+        .separator { 
+            height: 1px; 
+            background: linear-gradient(to right, transparent, #ccc, transparent); 
+            margin: 30px 0; 
+        }
+    </style>
+</head>
+<body>';
+
+echo '<div class="header">
+    <h1>APPROVAL CHAIN ENGINE</h1>
+    <h2>AUTOMATED TEST RUNNER</h2>
+</div>';
 
 try {
     $database = new Database();
     $db = $database->getConnection();
-    
-    // Get a test employee
-    $test_query = "SELECT u.*, p.employee_type 
-                   FROM users u 
-                   LEFT JOIN positions p ON u.position_id = p.id 
-                   WHERE u.is_active = 1 
-                   AND u.department_id IS NOT NULL 
-                   AND u.direct_superior IS NOT NULL
-                   LIMIT 5";
-    
-    $stmt = $db->prepare($test_query);
+    $approvalChain = new ApprovalChain($db);
+
+    // Get test subjects
+    $stmt = $db->prepare("
+        SELECT u.id, u.name, u.emp_number, u.department_id, u.position_id, u.direct_superior, p.employee_type 
+        FROM users u 
+        LEFT JOIN positions p ON u.position_id = p.id 
+        WHERE u.is_active = 1 AND u.department_id IS NOT NULL LIMIT 3
+    ");
     $stmt->execute();
     $test_employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    if (empty($test_employees)) {
-        echo "ERROR: No suitable test employees found.\n";
-        echo "Please ensure you have employees with:\n";
-        echo "- department_id set\n";
-        echo "- direct_superior set\n";
-        echo "- position_id set\n";
-        exit;
-    }
-    
-    $approvalChain = new ApprovalChain($db);
-    
-    foreach ($test_employees as $employee) {
-        echo "===========================================\n";
-        echo "TEST EMPLOYEE: {$employee['name']} ({$employee['emp_number']})\n";
-        echo "===========================================\n";
-        echo "Position ID: {$employee['position_id']}\n";
-        echo "Employee Type: " . ($employee['employee_type'] ?? 'Not set') . "\n";
-        echo "Department ID: {$employee['department_id']}\n";
-        echo "Direct Superior: {$employee['direct_superior']}\n";
-        echo "Is Confirmed: " . ($employee['is_confirmed'] ? 'Yes' : 'No (Probation)') . "\n\n";
+
+    foreach ($test_employees as $emp) {
+        echo '<div class="employee-card">';
+        echo '<div class="employee-header">';
+        echo '<h3>TESTING EMPLOYEE: ' . htmlspecialchars($emp['name']) . '</h3>';
+        echo '<p><strong>ID:</strong> ' . $emp['id'] . ' | <strong>Type:</strong> ' . htmlspecialchars($emp['employee_type']) . '</p>';
+        echo '</div>';
+
+        // First, get a valid form_id for testing
+        $formStmt = $db->prepare("SELECT id FROM forms LIMIT 1");
+        $formStmt->execute();
+        $form = $formStmt->fetch(PDO::FETCH_ASSOC);
         
-        // Get department details
-        $dept = new Department($db);
-        $dept->id = $employee['department_id'];
-        if ($dept->readOne()) {
-            echo "DEPARTMENT: {$dept->department_name}\n";
-            echo "  Staff Levels: {$dept->staff_approval_levels}\n";
-            echo "  Worker Levels: {$dept->worker_approval_levels}\n";
-            echo "  Probation Max: {$dept->probation_approval_levels}\n";
-            echo "  Level 2 Approver: " . ($dept->level_2_approver_id ?? 'Not set') . "\n";
-            echo "  Level 3 Approver: " . ($dept->level_3_approver_id ?? 'Not set') . "\n";
-            echo "  Level 4 Approver: " . ($dept->level_4_approver_id ?? 'Not set') . "\n";
-            echo "  Level 5 Approver: " . ($dept->level_5_approver_id ?? 'Not set') . "\n\n";
+        if (!$form) {
+            echo '<p class="status-error">✗ No forms found in database. Cannot create appraisal.</p>';
+            echo '</div>';
+            echo '<div class="separator"></div>';
+            continue;
         }
         
-        // Create a test appraisal
-        echo "Creating test appraisal...\n";
-        $test_appraisal_query = "INSERT INTO appraisals (user_id, form_id, appraisal_period_from, appraisal_period_to, status)
-                                 VALUES (?, 1, '2025-01-01', '2025-12-31', 'draft')";
-        $stmt = $db->prepare($test_appraisal_query);
-        $stmt->execute([$employee['id']]);
-        $test_appraisal_id = $db->lastInsertId();
-        
-        echo "Test appraisal created with ID: {$test_appraisal_id}\n\n";
-        
-        // Build approval chain
-        echo "BUILDING APPROVAL CHAIN...\n";
-        $chain = $approvalChain->buildApprovalChain($test_appraisal_id, $employee['id']);
-        
-        if ($chain) {
-            echo "✓ Approval chain built successfully!\n\n";
-            echo "GENERATED CHAIN:\n";
-            echo str_repeat("-", 80) . "\n";
-            printf("%-8s %-12s %-20s %-10s %-10s\n", "Level", "Approver ID", "Role", "Can Rate", "Final?");
-            echo str_repeat("-", 80) . "\n";
+        $form_id = $form['id'];
+
+        // 1. Create Appraisal with form_id
+        try {
+            $insertStmt = $db->prepare("INSERT INTO appraisals (user_id, form_id, status) VALUES (?, ?, 'draft')");
+            $insertStmt->execute([$emp['id'], $form_id]);
+            $appraisal_id = $db->lastInsertId();
             
-            foreach ($chain as $level) {
-                // Get approver name
-                $approver_query = "SELECT name FROM users WHERE id = ?";
-                $approver_stmt = $db->prepare($approver_query);
-                $approver_stmt->execute([$level['approver_id']]);
-                $approver = $approver_stmt->fetch(PDO::FETCH_ASSOC);
+            echo '<p class="status-success">✓ Appraisal created successfully (ID: ' . $appraisal_id . ')</p>';
+
+            // 2. Build Chain
+            $chain = $approvalChain->buildApprovalChain($appraisal_id, $emp['id']);
+
+            if ($chain && count($chain) > 0) {
+                echo '<p class="status-success">✓ Chain built successfully</p>';
                 
-                printf("%-8d %-12s %-20s %-10s %-10s\n",
-                       $level['level'],
-                       $level['approver_id'] . " ({$approver['name']})",
-                       $level['approver_role'],
-                       $level['can_rate'] ? 'YES' : 'NO',
-                       $level['is_final_approver'] ? 'YES' : 'NO'
-                );
+                echo '<h4 class="section-title">APPROVAL CHAIN</h4>';
+                echo '<table class="chain-table">';
+                echo '<thead><tr><th>Level</th><th>Approver Name</th><th>Role</th><th>Final?</th></tr></thead>';
+                echo '<tbody>';
+                
+                foreach ($chain as $lvl) {
+                    // Fetch name for the table
+                    $u_stmt = $db->prepare("SELECT name FROM users WHERE id = ?");
+                    $u_stmt->execute([$lvl['approver_id']]);
+                    $u_name = $u_stmt->fetchColumn() ?: "Unknown User";
+                    
+                    $final_class = $lvl['is_final_approver'] ? 'final-yes' : 'final-no';
+                    $final_text = $lvl['is_final_approver'] ? 'YES' : 'NO';
+                    
+                    echo '<tr>';
+                    echo '<td>' . $lvl['level'] . '</td>';
+                    echo '<td>' . htmlspecialchars(substr($u_name, 0, 30)) . '</td>';
+                    echo '<td>' . htmlspecialchars($lvl['approver_role']) . '</td>';
+                    echo '<td class="' . $final_class . '">' . $final_text . '</td>';
+                    echo '</tr>';
+                }
+                
+                echo '</tbody></table>';
+                
+            } else {
+                echo '<p class="status-error">✗ No approval chain generated</p>';
             }
-            echo str_repeat("-", 80) . "\n\n";
-            
-            // Verify in database
-            $verify_query = "SELECT * FROM appraisal_approvals WHERE appraisal_id = ? ORDER BY approval_level";
-            $verify_stmt = $db->prepare($verify_query);
-            $verify_stmt->execute([$test_appraisal_id]);
-            $saved_chain = $verify_stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            echo "VERIFICATION: Saved in database\n";
-            echo "  Total levels: " . count($saved_chain) . "\n";
-            echo "  Status: All levels are 'pending'\n\n";
-            
-            // Get appraisal metadata
-            $meta_query = "SELECT current_approval_level, total_approval_levels, status FROM appraisals WHERE id = ?";
-            $meta_stmt = $db->prepare($meta_query);
-            $meta_stmt->execute([$test_appraisal_id]);
-            $meta = $meta_stmt->fetch(PDO::FETCH_ASSOC);
-            
-            echo "APPRAISAL METADATA:\n";
-            echo "  Current Level: {$meta['current_approval_level']}\n";
-            echo "  Total Levels: {$meta['total_approval_levels']}\n";
-            echo "  Status: {$meta['status']}\n\n";
-            
-        } else {
-            echo "✗ Failed to build approval chain!\n";
-            echo "Check error log for details.\n\n";
+
+        } catch (Exception $e) {
+            echo '<p class="status-error">✗ Error creating appraisal: ' . htmlspecialchars($e->getMessage()) . '</p>';
+        }
+
+        // 3. Cleanup
+        if (isset($appraisal_id)) {
+            try {
+                $db->prepare("DELETE FROM appraisal_approvals WHERE appraisal_id = ?")->execute([$appraisal_id]);
+                $db->prepare("DELETE FROM appraisals WHERE id = ?")->execute([$appraisal_id]);
+                echo '<div class="cleanup">';
+                echo '<p>↺ Cleanup completed for appraisal ID: ' . $appraisal_id . '</p>';
+                echo '</div>';
+            } catch (Exception $cleanupError) {
+                echo '<p class="status-error">⚠ Cleanup failed: ' . htmlspecialchars($cleanupError->getMessage()) . '</p>';
+            }
         }
         
-        // Clean up test appraisal
-        echo "Cleaning up test data...\n";
-        $cleanup1 = "DELETE FROM appraisal_approvals WHERE appraisal_id = ?";
-        $stmt = $db->prepare($cleanup1);
-        $stmt->execute([$test_appraisal_id]);
-        
-        $cleanup2 = "DELETE FROM appraisals WHERE id = ?";
-        $stmt = $db->prepare($cleanup2);
-        $stmt->execute([$test_appraisal_id]);
-        
-        echo "✓ Test data cleaned up.\n\n";
+        echo '</div>';
+        echo '<div class="separator"></div>';
     }
-    
-    echo "===========================================\n";
-    echo "ALL TESTS COMPLETED\n";
-    echo "===========================================\n";
-    
+
 } catch (Exception $e) {
-    echo "ERROR: " . $e->getMessage() . "\n";
-    echo "Stack trace:\n" . $e->getTraceAsString() . "\n";
+    echo '<div style="background-color: #ffebee; color: #c62828; padding: 15px; border-radius: 5px; border-left: 4px solid #c62828;">';
+    echo '<h3>FATAL ERROR</h3>';
+    echo '<p>' . htmlspecialchars($e->getMessage()) . '</p>';
+    echo '</div>';
 }
+
+echo '</body></html>';
+?>

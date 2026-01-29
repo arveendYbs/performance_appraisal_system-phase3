@@ -57,7 +57,7 @@ class ApprovalChain {
             $chain = $this->generateChain($employee, $department, $total_levels);
             
             // Remove duplicates
-            $chain = $this->deduplicateChain($chain);
+            $chain = $this->deduplicateChain($chain, $employee_id);
             
             // Apply overrides (skip levels, add extra approvers, etc.)
             if ($override) {
@@ -78,7 +78,7 @@ class ApprovalChain {
                 $this->updateAppraisalMetadata($appraisal_id, count($chain));
                 
                 // Log chain creation
-                $this->logChainCreation($appraisal_id, $chain);
+                $this->logChainCreation($appraisal_id, $chain, $employee_id);
                 
                 return $chain;
             }
@@ -201,7 +201,7 @@ class ApprovalChain {
             case 'supervisor':
                 return $department['supervisor_approval_levels'] ?? 3;
             case 'manager':
-                return $department['manager_approval_levels'] ?? 3;
+                return $department['manager_approval_levels'] ?? 4;
             case 'executive':
                 return $department['executive_approval_levels'] ?? 2;
             default:
@@ -258,30 +258,29 @@ class ApprovalChain {
     /**
      * Remove duplicate approvers from chain
      */
-    private function deduplicateChain($chain) {
-        $seen_approvers = [];
-        $deduplicated = [];
-        $current_level = 1;
+    private function deduplicateChain($chain, $employee_id) { // Add employee_id param
+    $seen_approvers = [$employee_id]; // Add the employee to the 'already seen' list
+    $deduplicated = [];
+    $current_level = 1;
+    
+    foreach ($chain as $approval) {
+        $approver_id = $approval['approver_id'];
         
-        foreach ($chain as $approval) {
-            $approver_id = $approval['approver_id'];
-            
-            // Skip if we've already seen this approver
-            if (in_array($approver_id, $seen_approvers)) {
-                error_log("ApprovalChain: Skipping duplicate approver ID {$approver_id} at original level {$approval['level']}");
-                continue;
-            }
-            
-            // Add to chain with renumbered level
-            $approval['level'] = $current_level;
-            $approval['sequence_order'] = $current_level;
-            $deduplicated[$current_level] = $approval;
-            
-            $seen_approvers[] = $approver_id;
-            $current_level++;
+        // This will now skip the ID if it's the employee themselves
+        if (in_array($approver_id, $seen_approvers)) {
+            error_log("ApprovalChain: Skipping ID {$approver_id} (Duplicate or Self)");
+            continue;
         }
         
-        return $deduplicated;
+        $approval['level'] = $current_level;
+        $approval['sequence_order'] = $current_level;
+        $deduplicated[$current_level] = $approval;
+        
+        $seen_approvers[] = $approver_id;
+        $current_level++;
+    }
+    
+    return $deduplicated;
     }
 
     /**
@@ -397,22 +396,23 @@ class ApprovalChain {
     /**
      * Log chain creation for audit
      */
-    private function logChainCreation($appraisal_id, $chain) {
-        $chain_summary = [];
-        foreach ($chain as $approval) {
-            $chain_summary[] = "L{$approval['level']}:{$approval['approver_id']}({$approval['approver_role']})";
-        }
-        
-        $log_query = "INSERT INTO appraisal_approval_logs 
-                      (appraisal_id, approval_level, action, actor_id, new_status, comments)
-                      VALUES (?, 0, 'created', 0, 'pending_approval', ?)";
-        
-        $stmt = $this->conn->prepare($log_query);
-        $stmt->execute([
-            $appraisal_id,
-            'Approval chain created: ' . implode(' → ', $chain_summary)
-        ]);
+    private function logChainCreation($appraisal_id, $chain, $actor_id) { // Accept actor_id
+    $chain_summary = [];
+    foreach ($chain as $approval) {
+        $chain_summary[] = "L{$approval['level']}:{$approval['approver_id']}({$approval['approver_role']})";
     }
+    
+    $log_query = "INSERT INTO appraisal_approval_logs 
+                  (appraisal_id, approval_level, action, actor_id, new_status, comments)
+                  VALUES (?, 0, 'created', ?, 'pending_approval', ?)"; // Use '?' for actor_id
+    
+    $stmt = $this->conn->prepare($log_query);
+    $stmt->execute([
+        $appraisal_id,
+        $actor_id, // Pass the variable here
+        'Approval chain created: ' . implode(' → ', $chain_summary)
+    ]);
+}
 
     /**
      * Get current approver for an appraisal
